@@ -1,10 +1,10 @@
-const { Post, User } = require('../models');
+const { Post, User, Category } = require('../models');
 const { Op } = require('sequelize');
 
 // Public: Get all approved posts
 exports.getPublicPosts = async (req, res) => {
   try {
-    const { sort } = req.query; // e.g., sort=view_count:DESC
+    const { sort, category } = req.query; // sort=view_count:DESC
     let order = [['sequence_number', 'ASC']];
     
     if (sort) {
@@ -14,11 +14,17 @@ exports.getPublicPosts = async (req, res) => {
       }
     }
 
+    let where = { is_approved: true };
+    if (category) {
+      where.category_id = category;
+    }
+
     const posts = await Post.findAll({
-      where: { is_approved: true },
+      where,
       order,
       include: [
-        { model: User, as: 'creator', attributes: ['username'] }
+        { model: User, as: 'creator', attributes: ['username'] },
+        { model: Category, as: 'category', attributes: ['name'] }
       ]
     });
     res.json(posts);
@@ -30,7 +36,12 @@ exports.getPublicPosts = async (req, res) => {
 // Public/User: Get single post and increment view
 exports.getPostDetail = async (req, res) => {
   try {
-    const post = await Post.findByPk(req.params.id);
+    const post = await Post.findByPk(req.params.id, {
+      include: [
+        { model: User, as: 'creator', attributes: ['username'] },
+        { model: Category, as: 'category', attributes: ['name'] }
+      ]
+    });
     if (!post) return res.status(404).json({ message: 'Post not found' });
     
     // Increment view count
@@ -46,7 +57,7 @@ exports.getPostDetail = async (req, res) => {
 // User: Create post
 exports.createPost = async (req, res) => {
   try {
-    const { sequence_number, title, post_title, content, category_name, topic_name } = req.body;
+    const { sequence_number, title, post_title, content, category_id, topic_name } = req.body;
     const logo = req.file ? `/uploads/${req.file.filename}` : null;
 
     const post = await Post.create({
@@ -54,7 +65,7 @@ exports.createPost = async (req, res) => {
       title,
       post_title,
       content,
-      category_name,
+      category_id,
       topic_name,
       logo,
       created_by: req.user.id,
@@ -67,13 +78,19 @@ exports.createPost = async (req, res) => {
   }
 };
 
-// Admin: Get all posts with filter/search/sort
+// Admin/User: Get posts for dashboard (Admin sees all, User sees own)
 exports.getAllPostsAdmin = async (req, res) => {
   try {
     const { category, topic, sort, search } = req.query;
     
     let where = {};
-    if (category) where.category_name = { [Op.like]: `%${category}%` };
+    
+    // Role based filtering
+    if (req.user.role !== 'admin') {
+      where.created_by = req.user.id;
+    }
+
+    if (category) where.category_id = category;
     if (topic) where.topic_name = topic;
     if (search) {
       where[Op.or] = [
@@ -84,8 +101,10 @@ exports.getAllPostsAdmin = async (req, res) => {
 
     let order = [['created_at', 'DESC']];
     if (sort) {
-      const [field, direction] = sort.split(':');
-      order = [[field, direction]];
+      try {
+        const [field, direction] = sort.split(':');
+        order = [[field, direction]];
+      } catch (e) {}
     }
 
     const posts = await Post.findAll({
@@ -93,7 +112,8 @@ exports.getAllPostsAdmin = async (req, res) => {
       order,
       include: [
         { model: User, as: 'creator', attributes: ['username'] },
-        { model: User, as: 'updater', attributes: ['username'] }
+        { model: User, as: 'updater', attributes: ['username'] },
+        { model: Category, as: 'category', attributes: ['name'] }
       ]
     });
 
@@ -130,24 +150,25 @@ exports.updatePost = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    const { sequence_number, title, post_title, content, category_name, topic_name, is_approved } = req.body;
+    const { sequence_number, title, post_title, content, category_id, topic_name, is_approved } = req.body;
     
     if (req.file) {
       post.logo = `/uploads/${req.file.filename}`;
     }
 
-    post.sequence_number = sequence_number || post.sequence_number;
-    post.title = title || post.title;
-    post.post_title = post_title || post.post_title;
-    post.content = content || post.content;
-    post.category_name = category_name || post.category_name;
-    post.topic_name = topic_name || post.topic_name;
+    if (sequence_number !== undefined) post.sequence_number = sequence_number;
+    if (title) post.title = title;
+    if (post_title) post.post_title = post_title;
+    if (content) post.content = content;
+    if (category_id) post.category_id = category_id;
+    if (topic_name) post.topic_name = topic_name;
+    
     post.updated_by = req.user.id;
 
     if (req.user.role === 'admin' && is_approved !== undefined) {
       post.is_approved = is_approved;
-    } else {
-      post.is_approved = false; // Re-approval needed if user edits? (User choice, usually yes)
+    } else if (req.user.role !== 'admin') {
+      post.is_approved = false; // Re-approval needed if user edits
     }
 
     await post.save();

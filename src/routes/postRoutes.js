@@ -25,7 +25,7 @@ router.post('/', authMiddleware, upload.single('logo'), postController.createPos
 router.put('/:id', authMiddleware, upload.single('logo'), postController.updatePost);
 
 // Admin routes
-router.get('/admin', authMiddleware, adminMiddleware, postController.getAllPostsAdmin);
+router.get('/admin', authMiddleware, postController.getAllPostsAdmin);
 router.patch('/:id/approve', authMiddleware, adminMiddleware, postController.approvePost);
 router.delete('/:id', authMiddleware, adminMiddleware, postController.deletePost);
 

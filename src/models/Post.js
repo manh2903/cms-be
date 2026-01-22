@@ -40,6 +40,10 @@ const Post = sequelize.define('Post', {
     type: DataTypes.STRING,
     allowNull: true
   },
+  category_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
   topic_name: {
     type: DataTypes.STRING,
     allowNull: true

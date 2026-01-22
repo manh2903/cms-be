@@ -3,6 +3,8 @@ const cors = require('cors');
 const path = require('path');
 const authRoutes = require('./routes/authRoutes');
 const postRoutes = require('./routes/postRoutes');
+const categoryRoutes = require('./routes/categoryRoutes');
+const userRoutes = require('./routes/userRoutes');
 
 const app = express();
 
@@ -16,6 +18,8 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/posts', postRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/users', userRoutes);
 
 // Health check
 app.get('/', (req, res) => {
