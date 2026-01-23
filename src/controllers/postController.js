@@ -1,5 +1,24 @@
 const { Post, User, Category } = require('../models');
 const { Op } = require('sequelize');
+const slugify = require('../utils/slugify');
+
+async function generateUniqueSlug(title, currentId = null) {
+  let slug = slugify(title);
+  let uniqueSlug = slug;
+  let count = 1;
+
+  while (true) {
+    const where = { slug: uniqueSlug };
+    if (currentId) {
+      where.id = { [Op.ne]: currentId };
+    }
+    const existingPost = await Post.findOne({ where });
+    if (!existingPost) break;
+    uniqueSlug = `${slug}-${count}`;
+    count++;
+  }
+  return uniqueSlug;
+}
 
 // Public: Get all approved posts
 exports.getPublicPosts = async (req, res) => {
@@ -36,17 +55,24 @@ exports.getPublicPosts = async (req, res) => {
 // Public/User: Get single post and increment view
 exports.getPostDetail = async (req, res) => {
   try {
-    const post = await Post.findByPk(req.params.id, {
+    const { identifier } = req.params;
+    const isNumeric = /^\d+$/.test(identifier);
+    
+    const post = await Post.findOne({
+      where: isNumeric ? { [Op.or]: [{ id: identifier }, { slug: identifier }] } : { slug: identifier },
       include: [
         { model: User, as: 'creator', attributes: ['username'] },
         { model: Category, as: 'category', attributes: ['name'] }
       ]
     });
+
     if (!post) return res.status(404).json({ message: 'Post not found' });
     
-    // Increment view count
-    post.view_count += 1;
-    await post.save();
+    // Increment view count ONLY if in preview mode (as requested)
+    if (req.query.preview === 'true') {
+      post.view_count += 1;
+      await post.save();
+    }
 
     res.json(post);
   } catch (err) {
@@ -60,6 +86,8 @@ exports.createPost = async (req, res) => {
     const { sequence_number, title, post_title, content, category_id, topic_name } = req.body;
     const logo = req.file ? `/uploads/${req.file.filename}` : null;
 
+    const slug = await generateUniqueSlug(title);
+
     const post = await Post.create({
       sequence_number,
       title,
@@ -68,6 +96,7 @@ exports.createPost = async (req, res) => {
       category_id,
       topic_name,
       logo,
+      slug,
       created_by: req.user.id,
       is_approved: req.user.role === 'admin' // Auto approve if admin creates it
     });
@@ -107,9 +136,15 @@ exports.getAllPostsAdmin = async (req, res) => {
       } catch (e) {}
     }
 
-    const posts = await Post.findAll({
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    const { count, rows: posts } = await Post.findAndCountAll({
       where,
       order,
+      limit,
+      offset,
       include: [
         { model: User, as: 'creator', attributes: ['username'] },
         { model: User, as: 'updater', attributes: ['username'] },
@@ -117,7 +152,12 @@ exports.getAllPostsAdmin = async (req, res) => {
       ]
     });
 
-    res.json(posts);
+    res.json({
+      posts,
+      total: count,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -150,13 +190,25 @@ exports.updatePost = async (req, res) => {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    const { sequence_number, title, post_title, content, category_id, topic_name, is_approved } = req.body;
+    const { sequence_number, title, post_title, content, category_id, topic_name, is_approved, slug, view_count } = req.body;
     
     if (req.file) {
       post.logo = `/uploads/${req.file.filename}`;
     }
 
     if (sequence_number !== undefined) post.sequence_number = sequence_number;
+    if (view_count !== undefined) post.view_count = view_count;
+    
+    // Auto-update slug if title changes and no slug provided, or if slug provided
+    if (title && title !== post.title && !slug) {
+      post.slug = await generateUniqueSlug(title, post.id);
+    } else if (slug) {
+      // If user provides a custom slug, we should still ensure it's unique
+      post.slug = await generateUniqueSlug(slug, post.id);
+    } else if (title && !post.slug) {
+      post.slug = await generateUniqueSlug(title, post.id);
+    }
+
     if (title) post.title = title;
     if (post_title) post.post_title = post_title;
     if (content) post.content = content;

@@ -55,6 +55,11 @@ const Post = sequelize.define('Post', {
   updated_by: {
     type: DataTypes.INTEGER,
     allowNull: true
+  },
+  slug: {
+    type: DataTypes.STRING,
+    allowNull: true,
+    unique: true
   }
 }, {
   timestamps: true,

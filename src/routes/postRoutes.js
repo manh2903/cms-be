@@ -18,7 +18,7 @@ const upload = multer({ storage: storage });
 
 // Public routes
 router.get('/public', postController.getPublicPosts);
-router.get('/public/:id', postController.getPostDetail);
+router.get('/public/:identifier', postController.getPostDetail);
 
 // Protected routes (User + Admin)
 router.post('/', authMiddleware, upload.single('logo'), postController.createPost);
