@@ -2,6 +2,24 @@ const { Category } = require('../models');
 
 exports.getAllCategories = async (req, res) => {
   try {
+    const page = req.query.page ? parseInt(req.query.page) : null;
+    const limit = req.query.limit ? parseInt(req.query.limit) : null;
+    
+    if (page && limit) {
+      const offset = (page - 1) * limit;
+      const { count, rows: categories } = await Category.findAndCountAll({
+        order: [['name', 'ASC']],
+        limit,
+        offset
+      });
+      return res.json({
+        categories,
+        total: count,
+        totalPages: Math.ceil(count / limit),
+        currentPage: page
+      });
+    }
+
     const categories = await Category.findAll({
       order: [['name', 'ASC']]
     });
